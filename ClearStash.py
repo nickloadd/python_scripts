@@ -19,13 +19,13 @@ for DIR in FOLDERS:
             if len(os.listdir(root)) == 0: #if directory is empty
                 print(root)
                 COUNT_DIRECTORIES += 1
-                #os.rmdir(root) #delete empty directories
+                os.rmdir(root) #delete empty directories
         for file in files:
             path = root + "\\" + file
             if old >= os.path.getctime(path): #if file older than days
                 print(path)
                 COUNT_FILES +=1
-                #os.remove(path) #delete old files
+                os.remove(path) #delete old files
 
 #Statisctic
 print("Empty directories deleted: " + str(COUNT_DIRECTORIES) + "\n" + "Files older than " + str(days) + " days deleted: " + str(COUNT_FILES))
