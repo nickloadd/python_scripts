@@ -40,6 +40,8 @@ while read -r db ; do
     # drop excess '\'
     sed 's/\\//g' "${OUTDIR}/${db}_${table}.sql" > "${OUTDIR}/tmp" && mv "${OUTDIR}/tmp" "${OUTDIR}/${db}_${table}.sql"
 
+    #transformation part
+
     if [[ "$6" == "replicated" ]]; then
       # standart engine -> 'replicated' engine 
       sed -E "s/ENGINE\ =\ /ENGINE\ =\ Replicated/g" "${OUTDIR}/${db}_${table}.sql" > "${OUTDIR}/tmp" && mv "${OUTDIR}/tmp" "${OUTDIR}/${db}_${table}.sql"
