@@ -39,7 +39,7 @@ while read -r db ; do
     # standart engine -> 'replicated' engine 
     sed -E "s/ENGINE\ =\ /ENGINE\ =\ Replicated/g" "${OUTDIR}/${db}_${table}.sql" > "${OUTDIR}/tmp" && mv "${OUTDIR}/tmp" "${OUTDIR}/${db}_${table}.sql"
     # add replicated settings to engine config
-    sed -E "s/MergeTree/MergeTree(\'\/clickhouse\/tables\/\{shard\}\/${db}\/${table}\'\, \'\{replica\}\')/g" "${OUTDIR}/${db}_${table}.sql" >> "${OUTDIR}/schema_result.sql"
+    sed -E "s/MergeTree/MergeTree(\'\/clickhouse\/tables\/\{shard\}\/${db}\/${table}\'\, \'\{replica\}\')/g" "${OUTDIR}/${db}_${table}.sql" >> "${OUTDIR}/replicated_schema.sql"
 
   done < <(clickhouse-client -u ${DB_USER} --password ${DB_PASS} --host 127.0.0.1 -q "SHOW TABLES FROM $db")
 done < <(clickhouse-client -u ${DB_USER} --password ${DB_PASS} --host 127.0.0.1 -q "SHOW DATABASES")
