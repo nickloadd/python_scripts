@@ -1,5 +1,6 @@
 import aerospike
 import argparse
+
 import requests
 
 def parse_args():
@@ -33,21 +34,14 @@ def build_headers(apikey: str):
     }
     return headers
 
-def get_currency(url: str, headers: map, currencies: str):
+def get_currency(url: str, headers: dict):
     res = requests.get(url, headers)
     data = res.json()
     status_code = res.status_code
-    rate = data["rates"][currencies]
-    return float(rate)
-
-def debug_currency(url: str, headers: map, currencies: str):
-    res = requests.get(url, headers)
-    data = res.json()
-    status_code = res.status_code
-    rate = data["rates"][currencies]
     return data
 
 def update_aerospike_value(url: str, hosts: list, namespace: str, currencies: list, apikey: str):
+    data = get_currency(url, build_headers(apikey))
     conf = {
         "hosts": hosts,
         "policies": {
@@ -56,9 +50,9 @@ def update_aerospike_value(url: str, hosts: list, namespace: str, currencies: li
     }
     client = aerospike.client(conf).connect()
     for i in currencies:
-        key = (namespace, "currency", i)
-        value = {i: get_currency(url, build_headers(apikey), i)}
-        client.put(key, value)
+        key = (namespace, "currency", "currency")
+        value = {i: data["rates"][i]}
+        client.put(key, value, meta={'ttl': aerospike.TTL_NEVER_EXPIRE})
     client.close()
 
 def main():
