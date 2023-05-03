@@ -26,15 +26,14 @@ def parse_hosts(hosts: str):
         host_list.append(t)
     return host_list
 
-def get_currency(api: str, headers: map, currency: str):
+def get_currency(api: str, headers: dict):
     res = requests.get(api, headers)
     data = res.json()
-    status_code = res.status_code
-    rate = data["rates"][currency]
-    return float(rate)
+    return data
 
 
-def update_aerospike_value(hosts: list, api: str, headers: map, namespace: str):
+def update_aerospike_value(hosts: list, api: str, headers: dict, namespace: str):
+    data = get_currency(api, headers)
     conf = {
         "hosts": hosts,
         "policies": {
@@ -43,9 +42,9 @@ def update_aerospike_value(hosts: list, api: str, headers: map, namespace: str):
     }
     client = aerospike.client(conf).connect()
     for i in currencies_list:
-        key = (namespace, "currency", i)
-        value = {i: get_currency(api, headers, i)}
-        client.put(key, value)
+        key = (namespace, "currency", "currency")
+        value = {i: data["rates"][i]}
+        client.put(key, value, meta={'ttl': aerospike.TTL_NEVER_EXPIRE})
     client.close()
 
 def lambda_handler(event, context):
