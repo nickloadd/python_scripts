@@ -37,7 +37,9 @@ def build_headers(apikey: str):
 def get_currency(url: str, headers: dict):
     res = requests.get(url, headers)
     data = res.json()
-    status_code = res.status_code
+    if (res.status_code != 200):
+            print("Response status code:", res.status_code)
+            raise ValueError("Failed connect to API")
     return data
 
 def update_aerospike_value(url: str, hosts: list, namespace: str, currencies: list, apikey: str):
@@ -45,14 +47,23 @@ def update_aerospike_value(url: str, hosts: list, namespace: str, currencies: li
     conf = {
         "hosts": hosts,
         "policies": {
-            "timeout": 100  # milliseconds
+            "timeout": 100,  # milliseconds
+            "maxRetries": 5
         }
     }
-    client = aerospike.client(conf).connect()
+    try:
+        client = aerospike.client(conf).connect()
+    except:
+        raise RuntimeError("Failed connect to Aerospike")
     for i in currencies:
         key = (namespace, "currency", "currency")
-        value = {i: data["rates"][i]}
-        client.put(key, value, meta={'ttl': aerospike.TTL_NEVER_EXPIRE})
+        round_value = round(data["rates"][i], 4)
+        value = {i: round_value }
+        client.put(key, value, meta={'ttl': aerospike.TTL_NEVER_EXPIRE}) #store forever
+        (key_, meta, bin) = client.get(key)
+        if (round_value != bin[i]):
+            print("API value=",round_value," Write bin=", bin[i])
+            raise ValueError("API and Write values are not equal")
     client.close()
 
 def main():
