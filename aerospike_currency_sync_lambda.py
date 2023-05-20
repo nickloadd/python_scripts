@@ -1,4 +1,3 @@
-import json
 import aerospike
 import requests
 import os
@@ -29,6 +28,9 @@ def parse_hosts(hosts: str):
 def get_currency(api: str, headers: dict):
     res = requests.get(api, headers)
     data = res.json()
+    if (res.status_code != 200):
+        print("Response status code:", res.status_code)
+        raise ValueError("Failed connect to API")
     return data
 
 
@@ -37,14 +39,24 @@ def update_aerospike_value(hosts: list, api: str, headers: dict, namespace: str)
     conf = {
         "hosts": hosts,
         "policies": {
-            "timeout": 100  # milliseconds
+            "timeout": 100,  # milliseconds
+            "maxRetries": 5
         }
     }
-    client = aerospike.client(conf).connect()
+    try:
+        client = aerospike.client(conf).connect()
+    except:
+        raise RuntimeError("Failed connect to Aerospike")
     for i in currencies_list:
         key = (namespace, "currency", "currency")
-        value = {i: data["rates"][i]}
+        round_value = round(data["rates"][i], 4)
+        value = {i: round_value }
         client.put(key, value, meta={'ttl': aerospike.TTL_NEVER_EXPIRE})
+        (key_, meta, bin) = client.get(key)
+        if (round_value != bin[i]):
+            print("API value=",round_value," Write bin=", bin[i])
+            raise ValueError("API and Write values are not equal")
+        print("Currency",i,"was updated with value=",round_value)
     client.close()
 
 def lambda_handler(event, context):
