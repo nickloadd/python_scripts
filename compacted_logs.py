@@ -1,96 +1,129 @@
 import boto3
+import botocore
 import datetime
+import time
 from datetime import date, timedelta
-
-# Create a DynamoDB client
-dynamodb = boto3.client('dynamodb')
-# Create a Athena client
-athena = boto3.client('athena')
 
 # Database to execute the query against
 DATABASE = 'PROJECT_NAME'
 
 # Output location for query results
-output = 's3://PROJECT_NAME-compacted-logs/lambda_compacted_query_results/'
+output_bucket = 'PROJECT_NAME-compacted-logs'
 
+# Generate every date in range
 def daterange(start_date, end_date):
     for n in range(int((end_date - start_date).days)):
         yield start_date + timedelta(n)
 
-def get_time():
-    # Retrieve the item from your table
-    response = dynamodb.get_item(
-    TableName='PROJECT_NAME-lambda-timestamp',
-        Key={
-            'pk': {'N': '1'}
-        }
-    )
-    # Get the timestamp from the item
+# Get start date from DDB
+def get_start_date():
+    # Create a DynamoDB client
+    dynamodb = boto3.client('dynamodb')
+    # Retrieve the item from table
+    try:
+        response = dynamodb.get_item(
+        TableName='PROJECT_NAME-lambda-date',
+            Key={
+                'env': {'S': 'prod'}
+            }
+        )
+    except botocore.exceptions.ClientError as error:        
+        print('Error Message: {}'.format(error.response['Error']['Message']))
+        raise error
+    except botocore.exceptions.ParamValidationError as error:
+        raise ValueError('The parameters you provided are incorrect: {}'.format(error))
+    # Get the date from the item
     item = response['Item']
-    timestamp = str(item['timestamp']['S'])
-    dt = datetime.datetime.strptime(timestamp, '%Y-%m-%d').date()
-    print("Last Timestamp in DDB:", dt)
-    return dt
+    start_date = datetime.datetime.strptime(item['date']['S'], '%Y-%m-%d').date()
+    return start_date
 
-def update_time(time: int):
-    # Create a new item in your table
-    response = dynamodb.put_item(
-    TableName='PROJECT_NAME-lambda-timestamp',
-        Item={
-            'pk': {'N': '1'},
-            'timestamp': {'S': time}
+# Update date in DDB
+def update_date(last_update_date):
+    # Create a DynamoDB client
+    dynamodb = boto3.client('dynamodb')
+    # Create a new item in table
+    try:
+        response = dynamodb.put_item(
+        TableName='PROJECT_NAME-lambda-date',
+            Item={
+                'env': {'S': 'prod'},
+                'date': {'S': last_update_date}
+            }
+        )
+    except botocore.exceptions.ClientError as error:
+        print('Error Message: {}'.format(error.response['Error']['Message']))
+        raise error
+    except botocore.exceptions.ParamValidationError as error:
+        raise ValueError('The parameters you provided are incorrect: {}'.format(error))
+    return print("Date in DDB was updated with value:", last_update_date)
+
+# Run athena query
+def run_athena_query(database, query):
+    # Create a Athena client
+    athena = boto3.client('athena')
+    response = athena.start_query_execution(
+        QueryString=query,
+        QueryExecutionContext={
+            'Database': database
+        },
+        ResultConfiguration={
+            'OutputLocation': f's3://{output_bucket}/query-results/'
         }
     )
-    # dt = datetime.datetime.fromtimestamp(time)
-    print("Timestamp was updated with value:", time)
-    return print("Update result:", response)
+    return response['QueryExecutionId']
 
+# Wait completion of query
+def wait_for_query_to_complete(athena, query_execution_id, wait_interval=5):
+    while True:
+        response = athena.get_query_execution(QueryExecutionId=query_execution_id)
+        state = response['QueryExecution']['Status']['State']
+
+        if state in ('SUCCEEDED', 'FAILED', 'CANCELLED'):
+            break
+
+        time.sleep(wait_interval)
+
+    if state == 'FAILED':
+        error_message = response['QueryExecution']['Status'].get('StateChangeReason')
+        print(f"Query failed: {error_message}")
+
+    return state
+
+# Get query result
+def get_query_result(query_execution_id):
+    athena = boto3.client('athena')
+    wait_for_query_to_complete(athena, query_execution_id)
+    response = athena.get_query_results(
+        QueryExecutionId=query_execution_id
+    )
+    return response
+
+# Insert into compacted logs
 def update_compacted_logs(start_date, end_date):
-    # dt = datetime.datetime.fromtimestamp(time) 
+    print("Last date in DDB:", start_date)
     for single_date in daterange(start_date, end_date):
         print("Inserting day:", str(single_date))
         year = single_date.strftime("%Y")
         month = single_date.strftime("%m")
         day = single_date.strftime("%d")
-        # Query string to execute
+        # Build query string to execute
         query = f"""
-            INSERT INTO PROJECT_NAME.compacted_logs_dev SELECT *
-                    FROM PROJECT_NAME.raw_logs_dev t1
+            INSERT INTO PROJECT_NAME.compacted_logs_prod SELECT *
+                    FROM PROJECT_NAME.raw_logs_prod
                     WHERE year = '{year}'
                         AND month = '{month}'
-                        AND day = '{day}'
-                        AND not exists (
-                                            select
-                                                id
-                                            from PROJECT_NAME.raw_logs_dev t2
-                                            WHERE year = '{year}'
-                                            AND month = '{month}'
-                                            AND day = '{day}'
-                                            where m1.id = m2.id
-                                        );
+                        AND day = '{day}';
                         """
-        print("query=",query)
         # Start the query execution
-        response = athena.start_query_execution(
-            QueryString=query,
-            QueryExecutionContext={
-                'Database': DATABASE
-            },
-            ResultConfiguration={
-                'OutputLocation': output
-            }
-        )
-        print("Response:", response)
-        print("Successful insert data of " + str(single_date) + " day")
-    return response
+        query_execution_id = run_athena_query(DATABASE, query)
+        get_query_result(query_execution_id)
+        print("Inserted day:", str(single_date))
 
 def lambda_handler(event, context):
-    # end_date_ts = int(datetime.datetime.utcnow().timestamp())
-    # end_date_dt = datetime.datetime.fromtimestamp(end_date_ts)
     end_date = date.today()
-    if (get_time() != end_date):
-        update_compacted_logs(get_time(), end_date)
+    if (get_start_date() < end_date):
+        update_compacted_logs(get_start_date(), end_date)
     else:
         raise ValueError("Data is already updated")
-    update_time(end_date)
+    update_date(str(end_date))
     return None
