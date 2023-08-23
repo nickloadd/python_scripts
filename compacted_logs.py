@@ -11,7 +11,7 @@ athena = boto3.client('athena')
 DATABASE = 'PROJECT_NAME'
 
 # Output location for query results
-output = 's3://PROJECT_NAME-compacted-logs/'
+output = 's3://PROJECT_NAME-compacted-logs/lambda_compacted_query_results/'
 
 def daterange(start_date, end_date):
     for n in range(int((end_date - start_date).days)):
@@ -55,10 +55,19 @@ def update_compacted_logs(start_date, end_date):
         # Query string to execute
         query = f"""
             INSERT INTO PROJECT_NAME.compacted_logs_dev SELECT *
-                    FROM PROJECT_NAME.raw_logs_dev
+                    FROM PROJECT_NAME.raw_logs_dev t1
                     WHERE year = '{year}'
                         AND month = '{month}'
-                        AND day = '{day}';
+                        AND day = '{day}'
+                        AND not exists (
+                                            select
+                                                id
+                                            from PROJECT_NAME.raw_logs_dev t2
+                                            WHERE year = '{year}'
+                                            AND month = '{month}'
+                                            AND day = '{day}'
+                                            where m1.id = m2.id
+                                        );
                         """
         print("query=",query)
         # Start the query execution
