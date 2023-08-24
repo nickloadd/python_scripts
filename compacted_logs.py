@@ -27,7 +27,7 @@ def get_start_date():
                 'env': {'S': 'prod'}
             }
         )
-    except botocore.exceptions.ClientError as error:        
+    except botocore.exceptions.ClientError as error:       
         print('Error Message: {}'.format(error.response['Error']['Message']))
         raise error
     except botocore.exceptions.ParamValidationError as error:
